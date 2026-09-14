@@ -228,6 +228,18 @@ ENABLE_AUTO_COMMENT_FEED=true     # Comment on feed posts
 ENABLE_AUTO_LIKE_HASHTAGS=true    # Like posts from hashtag explore
 ENABLE_AUTO_COMMENT_HASHTAGS=true # Comment on hashtag posts
 ENABLE_DM_AUTO_REPLY=true         # Auto-reply to incoming DMs
+
+### Supercharge with Niche Relevance (For Agencies / B2B)
+Want the bot to only interact with potential leads or peers? Use the Relevance Engine!
+
+```dotenv
+# Define your business:
+ACCOUNT_CONTEXT="We are a web design agency looking for small business owners and startups."
+
+# Turn the filter on:
+STRICT_RELEVANCE_CHECK=true
+```
+When this is enabled, the AI reads every post against your `ACCOUNT_CONTEXT`. If it decides the post is irrelevant (e.g., someone's personal vacation photo rather than a business post), it entirely skips liking and commenting!
 ```
 
 ---

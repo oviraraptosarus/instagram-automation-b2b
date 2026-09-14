@@ -104,6 +104,18 @@ class AutoPilotDaemon {
 
             Logger.action('AI Reading', `Post by @${username}: "${caption.slice(0, 40)}..."`);
             
+            // --- STRICT RELEVANCE AI CHECK ---
+            if (config.filtering.strictRelevance) {
+                Logger.info('Analyzing post relevance based on ACCOUNT_CONTEXT...');
+                const isRelevant = await this.brain.isPostRelevant(caption, username);
+                if (!isRelevant) {
+                    Logger.warn(`Skipping post by @${username}: Not relevant to our business niche.`);
+                    await page.keyboard.press('Escape');
+                    return;
+                }
+                Logger.success('Post is relevant! Generating engagement...');
+            }
+            
             // Generate smart AI Comment
             const generatedComment = await this.brain.generateComment(caption, username);
             

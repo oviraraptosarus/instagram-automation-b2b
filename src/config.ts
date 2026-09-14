@@ -19,6 +19,10 @@ export const config = {
     },
     targeting: {
         hashtags: (process.env.TARGET_HASHTAGS || 'tech,coding,software').split(',').map(h => h.trim()),
+        accountContext: process.env.ACCOUNT_CONTEXT || '',
+    },
+    filtering: {
+        strictRelevance: process.env.STRICT_RELEVANCE_CHECK === 'true'
     },
     modules: {
         feedLike: process.env.ENABLE_AUTO_LIKE_FEED !== 'false',

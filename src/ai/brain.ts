@@ -53,6 +53,27 @@ Generate a single short, natural-sounding Instagram comment.`;
         return this.callLLM(systemPrompt, userPrompt);
     }
 
+
+    /**
+     * Relevancy check to ensure we only interact with potential leads or peers.
+     */
+    async isPostRelevant(postCaption: string, username: string): Promise<boolean> {
+        if (!config.filtering.strictRelevance) return true;
+        if (!config.targeting.accountContext) return true;
+
+        const systemPrompt = `You are a strict filtering AI for an Instagram account.
+Account Context: "${config.targeting.accountContext}"
+
+Analyze the post. Is it relevant to this account (e.g., a potential client, a lead, a peer in the exact same niche, or relevant industry news)?
+If it is unrelated to the account's niche, personal noise, or random spam, reject it.
+Respond ONLY with the word YES or NO.`;
+
+        const userPrompt = `Post by @${username}: "${postCaption || '(no caption)'}"`;
+
+        const response = await this.callLLM(systemPrompt, userPrompt);
+        return response.toUpperCase().includes('YES');
+    }
+
     /**
      * Generate a contextual DM reply.
      */
