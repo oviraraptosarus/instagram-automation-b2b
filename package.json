@@ -1,0 +1,49 @@
+{
+  "name": "instagram-autopilot",
+  "version": "1.0.0",
+  "description": "Smart, stealth, AI-powered Instagram automation engine with anti-ban safety limits, background runner, and live dashboard.",
+  "main": "dist/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "login": "ts-node src/login-helper.ts",
+    "dashboard": "node dist/dashboard/standalone.js",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "instagram",
+    "automation",
+    "ai",
+    "openclaw",
+    "anti-ban",
+    "playwright",
+    "stealth",
+    "bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.50.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "chalk": "^4.1.2",
+    "ora": "^5.4.1",
+    "ws": "^8.18.0",
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/ws": "^8.5.14",
+    "@types/chalk": "^2.2.0",
+    "typescript": "^5.7.3",
+    "ts-node": "^10.9.2",
+    "rimraf": "^6.0.1"
+  }
+}
