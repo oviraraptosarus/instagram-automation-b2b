@@ -25,25 +25,27 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.7.9",
+    "better-sqlite3": "^13.0.3",
+    "chalk": "^4.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ora": "^5.4.1",
     "playwright": "^1.50.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "cors": "^2.8.5",
-    "chalk": "^4.1.2",
-    "ora": "^5.4.1",
-    "ws": "^8.18.0",
-    "axios": "^1.7.9"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/node": "^22.13.4",
-    "@types/express": "^4.17.21",
-    "@types/cors": "^2.8.17",
-    "@types/ws": "^8.5.14",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/chalk": "^2.2.0",
-    "typescript": "^5.7.3",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.4",
+    "@types/ws": "^8.5.14",
+    "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
-    "rimraf": "^6.0.1"
+    "typescript": "^5.7.3"
   }
 }

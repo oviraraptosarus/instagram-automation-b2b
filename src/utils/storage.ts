@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
@@ -12,31 +11,43 @@ export interface AppStats {
 }
 
 export class Storage {
-    static getStats(): AppStats {
-        if (!fs.existsSync(config.paths.statsFile)) {
-            return this.resetStats();
+    private customStatsFile?: string;
+
+    constructor(statsFile?: string) {
+        this.customStatsFile = statsFile;
+    }
+
+    private get statsFilePath(): string {
+        return this.customStatsFile || config.paths.statsFile;
+    }
+
+    static getStats(filePath?: string): AppStats {
+        const targetPath = filePath || config.paths.statsFile;
+        if (!fs.existsSync(targetPath)) {
+            return this.resetStats([], targetPath);
         }
         try {
-            const data = fs.readFileSync(config.paths.statsFile, 'utf8');
+            const data = fs.readFileSync(targetPath, 'utf8');
             const stats = JSON.parse(data) as AppStats;
             
             // Daily reset check
             const today = new Date().toDateString();
             if (stats.lastResetDate !== today) {
-                return this.resetStats(stats.interactedPosts);
+                return this.resetStats(stats.interactedPosts, targetPath);
             }
             return stats;
         } catch (e) {
-            return this.resetStats();
+            return this.resetStats([], targetPath);
         }
     }
 
-    static saveStats(stats: AppStats) {
-        fs.mkdirSync(path.dirname(config.paths.statsFile), { recursive: true });
-        fs.writeFileSync(config.paths.statsFile, JSON.stringify(stats, null, 2));
+    static saveStats(stats: AppStats, filePath?: string) {
+        const targetPath = filePath || config.paths.statsFile;
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.writeFileSync(targetPath, JSON.stringify(stats, null, 2));
     }
 
-    private static resetStats(history: string[] = []): AppStats {
+    private static resetStats(history: string[] = [], filePath?: string): AppStats {
         const initial = {
             likesToday: 0,
             commentsToday: 0,
@@ -44,23 +55,43 @@ export class Storage {
             lastResetDate: new Date().toDateString(),
             interactedPosts: history.slice(-500) // Keep last 500 to prevent infinite growth
         };
-        this.saveStats(initial);
+        this.saveStats(initial, filePath);
         return initial;
     }
 
-    static addLike() {
-        const s = this.getStats(); s.likesToday++; this.saveStats(s);
+    static addLike(filePath?: string) {
+        const s = this.getStats(filePath); s.likesToday++; this.saveStats(s, filePath);
     }
-    static addComment(postId: string) {
-        const s = this.getStats(); 
+    static addComment(postId: string, filePath?: string) {
+        const s = this.getStats(filePath); 
         s.commentsToday++; 
         if(!s.interactedPosts.includes(postId)) s.interactedPosts.push(postId);
-        this.saveStats(s);
+        this.saveStats(s, filePath);
     }
-    static addDM() {
-        const s = this.getStats(); s.dMsToday++; this.saveStats(s);
+    static addDM(filePath?: string) {
+        const s = this.getStats(filePath); s.dMsToday++; this.saveStats(s, filePath);
     }
-    static hasInteracted(postId: string): boolean {
-        return this.getStats().interactedPosts.includes(postId);
+    static hasInteracted(postId: string, filePath?: string): boolean {
+        return this.getStats(filePath).interactedPosts.includes(postId);
+    }
+
+    // Instance methods for dependency injection
+    getStats(): AppStats {
+        return Storage.getStats(this.statsFilePath);
+    }
+    saveStats(stats: AppStats): void {
+        Storage.saveStats(stats, this.statsFilePath);
+    }
+    addLike(): void {
+        Storage.addLike(this.statsFilePath);
+    }
+    addComment(postId: string): void {
+        Storage.addComment(postId, this.statsFilePath);
+    }
+    addDM(): void {
+        Storage.addDM(this.statsFilePath);
+    }
+    hasInteracted(postId: string): boolean {
+        return Storage.hasInteracted(postId, this.statsFilePath);
     }
 }

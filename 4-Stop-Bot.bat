@@ -1,8 +1,8 @@
 @echo off
 echo ===========================================
-echo STOPPING INSTAGRAM AI AUTOPILOT
+echo STOPPING INSTAGRAM AI AUTOPILOT WORKERS
 echo ===========================================
-echo Cleaning up browser and node processes...
-taskkill /F /IM node.exe >nul 2>&1
-echo Done! The bot is completely stopped.
+echo Stopping active automation processes gracefully...
+node -e "require('./dist/utils/process-control').ProcessControl.killProcess('daemon')"
+echo Done! Bot daemon stopped cleanly.
 pause

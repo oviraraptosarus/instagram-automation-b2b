@@ -12,7 +12,7 @@ class AutoPilotDaemon {
     private isRunning: boolean = true;
 
     constructor() {
-        this.engine = new BrowserEngine();
+            this.engine = new BrowserEngine(process.env.INSTAGRAM_ACCOUNT_ID || 'default');
         this.brain = new AIBrain();
     }
 

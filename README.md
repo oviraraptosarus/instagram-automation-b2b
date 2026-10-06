@@ -1,6 +1,33 @@
-# 🤖 Instagram AI AutoPilot
+# 🤖 Instagram AI AutoPilot — Multi-Account Architecture
 
-A smart, stealth, background Instagram automation engine that auto-likes, auto-comments, and auto-replies to DMs using AI-generated responses — with built-in anti-ban safety limits so your account stays safe.
+A smart, stealth, multi-account Instagram automation engine powered by isolated Playwright contexts, transactional SQLite persistence (`data/accounts/instagram.db`), AI comment generation, action queues, and real-time operator dashboard.
+
+---
+
+## 🏗️ Multi-Account Isolated Architecture
+
+```
+                    ACCOUNT REGISTRY (AccountRegistry)
+                                   |
+                                   v
+                      JOB / TASK QUEUE (ActionQueue)
+                                   |
+              +--------------------+--------------------+
+              |                    |                    |
+              v                    v                    v
+          ACCOUNT A            ACCOUNT B            ACCOUNT C
+        (AccountWorker)      (AccountWorker)      (AccountWorker)
+              |                    |                    |
+          Browser A            Browser B            Browser C
+       data/accounts/       data/accounts/       data/accounts/
+      account_01/profile   account_02/profile   account_03/profile
+              |                    |                    |
+              +--------------------+--------------------+
+                                   |
+                                   v
+                        TRANSACTIONAL SQLITE DB
+                       (data/accounts/instagram.db)
+```
 
 ---
 
