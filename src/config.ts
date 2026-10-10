@@ -34,11 +34,28 @@ export const config = {
     dashboard: {
         port: parseInt(process.env.DASHBOARD_PORT || '3456', 10)
     },
+    dm: {
+        // Max threads inspected per inbox sweep (keeps a sweep bounded).
+        maxThreadsPerSweep: parseInt(process.env.DM_MAX_THREADS_PER_SWEEP || '5', 10),
+        // Skip threads whose last inbound message is older than this.
+        maxThreadAgeHours: parseInt(process.env.DM_MAX_THREAD_AGE_HOURS || '48', 10),
+        // Never send more than one reply to the same thread within this window.
+        replyCooldownMinutes: parseInt(process.env.DM_REPLY_COOLDOWN_MINUTES || '180', 10),
+        // Require the AI to classify intent before replying.
+        qualifyLeads: process.env.DM_QUALIFY_LEADS !== 'false',
+        // Hand off to a human instead of replying when intent is high-value.
+        handoffOnHotLead: process.env.DM_HANDOFF_ON_HOT_LEAD !== 'false',
+        // Never auto-reply to these intents (comma separated).
+        neverReplyIntents: (process.env.DM_NEVER_REPLY_INTENTS || 'SPAM,ABUSE,SALES_PITCH')
+            .split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+    },
     paths: {
-        userDataDir: path.join(__dirname, '../../data/browser_profile'),
-        dataDir: path.join(__dirname, '../../data'),
-        statsFile: path.join(__dirname, '../../data/stats.json'),
-        logsFile: path.join(__dirname, '../../data/app.log')
+        // NOTE: resolves to <projectRoot>/data from BOTH src/ (ts-node) and dist/ (compiled).
+        // Previously used '../../data', which escaped the project root and wrote to $HOME.
+        userDataDir: path.join(__dirname, '../data/browser_profile'),
+        dataDir: path.join(__dirname, '../data'),
+        statsFile: path.join(__dirname, '../data/stats.json'),
+        logsFile: path.join(__dirname, '../data/app.log')
     }
 };
 

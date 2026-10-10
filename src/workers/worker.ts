@@ -3,6 +3,9 @@ import { AIBrain } from '../ai/brain';
 import { Storage } from '../utils/storage';
 import { Logger } from '../utils/logger';
 import { Humanizer } from '../engine/humanizer';
+import { DMEngine } from '../engine/dm-engine';
+import { QuotaLedger } from '../storage/quota-ledger';
+import { upsertAccountRow } from '../storage/db';
 import { config, getActiveLimits } from '../config';
 import type { Page } from 'playwright';
 
@@ -14,19 +17,26 @@ export class AccountWorker {
     private brain: AIBrain;
     private isRunning: boolean = false;
     private page: Page | null = null;
+    private dmEngine: DMEngine;
+    private safetyProfile: string;
+    /** Rotates DM sweeps and engagement cycles so DMs are never starved. */
+    private cycleCount: number = 0;
 
     constructor(
         accountId: string,
         browserEngine: BrowserEngine,
         storage: Storage,
         logger: Logger,
-        brain: AIBrain
+        brain: AIBrain,
+        safetyProfile: string = config.safety.profile
     ) {
         this.accountId = accountId;
         this.browserEngine = browserEngine;
         this.storage = storage;
         this.logger = logger;
         this.brain = brain;
+        this.safetyProfile = safetyProfile;
+        this.dmEngine = new DMEngine(accountId, brain, logger, safetyProfile);
     }
 
     public getIsRunning(): boolean {
@@ -37,6 +47,21 @@ export class AccountWorker {
     async start(): Promise<void> {
         this.logger.info(`Starting action loop`);
         this.isRunning = true;
+
+        // Mirror this account into SQLite up front: quotas/interactions carry
+        // FKs to accounts(id), so without this every ledger write would fail.
+        try {
+            upsertAccountRow({
+                id: this.accountId,
+                username: this.accountId,
+                safetyProfile: this.safetyProfile,
+                authenticated: true,
+                enabled: true,
+                status: 'RUNNING',
+            });
+        } catch (err: any) {
+            this.logger.warn(`Account row sync failed: ${err.message}`);
+        }
 
         try {
             this.page = await this.browserEngine.launch(true);
@@ -78,17 +103,35 @@ export class AccountWorker {
                     continue;
                 }
 
-                // 2. Quota check
-                const stats = this.storage.getStats();
-                const limits = getActiveLimits();
+                this.cycleCount++;
 
-                if (config.modules.hashtagLike && stats.likesToday < limits.dailyLikes) {
-                    await this.runCycle(this.page);
-                } else {
-                    this.logger.info(`Daily quota reached (likes: ${stats.likesToday}/${limits.dailyLikes}). Waiting...`);
+                // 2. DM sweep — runs every other cycle so the inbox is serviced
+                //    promptly without crowding out engagement. Gated by its own
+                //    DM quota inside DMEngine.
+                if (config.modules.dmReply && this.cycleCount % 2 === 1) {
+                    await this.runDMCycle(this.page);
+                    await Humanizer.cooldownPause();
+                    continue;
                 }
 
-                // 3. Cooldown between cycles
+                // 3. Engagement cycle — quota now comes from the transactional
+                //    ledger, not the JSON stats file that nothing enforced.
+                const canLike = QuotaLedger.hasBudget(this.accountId, 'LIKE', this.safetyProfile);
+                const canComment = QuotaLedger.hasBudget(this.accountId, 'COMMENT', this.safetyProfile);
+
+                if ((config.modules.hashtagLike && canLike) || (config.modules.hashtagComment && canComment)) {
+                    await this.runCycle(this.page);
+                } else {
+                    const snap = QuotaLedger.snapshot(this.accountId);
+                    const limits = getActiveLimits();
+                    this.logger.info(
+                        `Engagement quota reached (likes ${snap.likesToday}/${limits.dailyLikes}, ` +
+                        `comments ${snap.commentsToday}/${limits.dailyComments}). Waiting...`
+                    );
+                    await Humanizer.randomPause(600, 1200);
+                }
+
+                // 4. Cooldown between cycles
                 await Humanizer.cooldownPause();
             } catch (err: any) {
                 if (this.isAuthError(err)) {
@@ -102,6 +145,20 @@ export class AccountWorker {
         }
 
         this.logger.info(`Worker stopped.`);
+    }
+
+    /**
+     * Run one DM inbox sweep. All safety gating lives in DMEngine; this method
+     * only handles logging and letting auth errors bubble to the main loop.
+     */
+    async runDMCycle(page: Page): Promise<void> {
+        this.logger.action('DM', 'Sweeping inbox for unread messages');
+        const result = await this.dmEngine.sweepInbox(page);
+
+        if (result.replied > 0) this.storage.addDM();
+        if (result.escalated > 0) {
+            this.logger.success(`${result.escalated} hot lead(s) flagged for human follow-up`);
+        }
     }
 
     /** Signal the worker to stop after the current cycle completes. */
@@ -147,41 +204,64 @@ export class AccountWorker {
                 this.logger.success(`Post is relevant! Generating engagement...`);
             }
 
-            const generatedComment = await this.brain.generateComment(caption, username);
             const stats = this.storage.getStats();
             const limits = getActiveLimits();
-            const postIdContext = `${tag}-${Date.now()}`;
 
-            // Like action
-            if (config.modules.hashtagLike && stats.likesToday < limits.dailyLikes) {
-                try {
-                    const likeSvg = await page.locator('svg[aria-label="Like"]').first();
-                    if (likeSvg) {
-                        await likeSvg.click();
-                        this.storage.addLike();
-                        this.logger.success(`Liked post by @${username}`);
-                        await Humanizer.randomPause(1, 3);
+            // Use the REAL post shortcode as the dedupe key. The previous
+            // `${tag}-${Date.now()}` was unique on every call, so the duplicate
+            // guard could never match and the same post could be re-actioned.
+            const postId = await this.currentPostId(page, tag);
+
+            if (QuotaLedger.hasInteracted(this.accountId, postId)) {
+                this.logger.info(`Already interacted with ${postId} — skipping`);
+                await page.keyboard.press('Escape');
+                return;
+            }
+
+            // Like action — quota consumed atomically before the click.
+            if (config.modules.hashtagLike) {
+                if (QuotaLedger.consume(this.accountId, 'LIKE', this.safetyProfile)) {
+                    try {
+                        const likeSvg = page.locator('svg[aria-label="Like"]').first();
+                        if (await likeSvg.count() > 0) {
+                            await likeSvg.click();
+                            this.storage.addLike();
+                            QuotaLedger.recordInteraction(this.accountId, postId, 'LIKE');
+                            this.logger.success(`Liked post by @${username}`);
+                            await Humanizer.randomPause(1, 3);
+                        }
+                    } catch (e: any) {
+                        this.logger.warn(`Like failed: ${e.message}`);
                     }
-                } catch (e) {}
+                } else {
+                    this.logger.info(`Like quota exhausted — skipping like`);
+                }
             }
 
             // Comment action
-            if (config.modules.hashtagComment && stats.commentsToday < limits.dailyComments) {
-                try {
-                    const commentBox = await page.locator('textarea[aria-label="Add a comment…"], textarea').first();
-                    if (commentBox) {
-                        this.logger.info(`AI drafted comment: "${generatedComment}"`);
-                        await Humanizer.humanType(page, 'textarea', generatedComment);
+            if (config.modules.hashtagComment) {
+                const generatedComment = await this.brain.generateComment(caption, username);
 
-                        const postBtn = await page.locator('div[role="button"]:has-text("Post")');
-                        if (postBtn) {
-                            await postBtn.click();
-                            this.storage.addComment(postIdContext);
-                            this.logger.success(`Commented on @${username}'s post!`);
+                if (QuotaLedger.consume(this.accountId, 'COMMENT', this.safetyProfile)) {
+                    try {
+                        const commentBox = page.locator('textarea[aria-label="Add a comment…"], textarea').first();
+                        if (await commentBox.count() > 0) {
+                            this.logger.info(`AI drafted comment: "${generatedComment}"`);
+                            await Humanizer.humanType(page, 'textarea', generatedComment);
+
+                            const postBtn = page.locator('div[role="button"]:has-text("Post")').first();
+                            if (await postBtn.count() > 0) {
+                                await postBtn.click();
+                                this.storage.addComment(postId);
+                                QuotaLedger.recordInteraction(this.accountId, postId, 'COMMENT');
+                                this.logger.success(`Commented on @${username}'s post!`);
+                            }
                         }
+                    } catch (e: any) {
+                        this.logger.warn(`Could not post comment. Box closed or disabled.`);
                     }
-                } catch (e) {
-                    this.logger.warn(`Could not post comment. Box closed or disabled.`);
+                } else {
+                    this.logger.info(`Comment quota exhausted — skipping comment`);
                 }
             }
 
@@ -189,6 +269,19 @@ export class AccountWorker {
         } else {
             this.logger.warn(`No posts found for hashtag #${tag}`);
         }
+    }
+
+    /**
+     * Resolve the Instagram shortcode of the currently open post, e.g. "Cx1Ab2".
+     * Falls back to a tag-scoped marker only if the URL cannot be parsed.
+     */
+    private async currentPostId(page: Page, tag: string): Promise<string> {
+        try {
+            const url = page.url();
+            const m = url.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
+            if (m) return m[1];
+        } catch { /* fall through to marker */ }
+        return `${tag}-unresolved`;
     }
 
     /** Check if the current time falls within the sleep window. */

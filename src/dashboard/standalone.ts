@@ -65,6 +65,37 @@ app.get('/api/accounts', (req, res) => {
   res.json({ accounts: accountsWithStats });
 });
 
+// GET /api/dm/escalations - Hot leads flagged for human follow-up.
+// Without this the HOT_LEAD handoff would be invisible and leads would rot.
+app.get('/api/dm/escalations', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT account_id, message, created_at FROM account_logs
+      WHERE message LIKE '[DM:ESCALATED_HOT_LEAD]%'
+      ORDER BY created_at DESC LIMIT 100
+    `).all();
+    res.json({ escalations: rows, count: rows.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/dm/activity - Recent DM engine activity across all accounts.
+app.get('/api/dm/activity', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT account_id, level, message, created_at FROM account_logs
+      WHERE message LIKE '[DM:%'
+      ORDER BY created_at DESC LIMIT 200
+    `).all();
+    res.json({ activity: rows, count: rows.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/accounts - Register new account
 app.post('/api/accounts', (req, res) => {
   try {

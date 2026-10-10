@@ -191,3 +191,50 @@ export function runMigrations(): void {
   const db = getDb();
   runMigrationsInternal(db);
 }
+
+/**
+ * Mirror a file-discovered account into the `accounts` table.
+ *
+ * `quotas` and `interactions` both carry a FOREIGN KEY to `accounts(id)` and
+ * the connection runs with `foreign_keys = ON`. The registry is file-based, so
+ * without this sync any account discovered from disk but missing from SQLite
+ * made every quota/interaction write fail with "FOREIGN KEY constraint failed".
+ * Call this before touching the quota ledger for an account.
+ */
+export function upsertAccountRow(account: {
+  id: string;
+  username: string;
+  label?: string | null;
+  enabled?: boolean;
+  authenticated?: boolean;
+  status?: string | null;
+  safetyProfile?: string;
+  accountContext?: string | null;
+  targetHashtags?: string[] | null;
+}): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO accounts
+      (id, username, label, enabled, authenticated, status, safety_profile, account_context, target_hashtags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      username        = excluded.username,
+      label           = excluded.label,
+      enabled         = excluded.enabled,
+      authenticated   = excluded.authenticated,
+      status          = excluded.status,
+      safety_profile  = excluded.safety_profile,
+      account_context = excluded.account_context,
+      target_hashtags = excluded.target_hashtags
+  `).run(
+    account.id,
+    account.username,
+    account.label ?? null,
+    account.enabled === false ? 0 : 1,
+    account.authenticated ? 1 : 0,
+    account.status ?? 'IDLE',
+    account.safetyProfile ?? 'balanced',
+    account.accountContext ?? null,
+    account.targetHashtags ? JSON.stringify(account.targetHashtags) : null
+  );
+}

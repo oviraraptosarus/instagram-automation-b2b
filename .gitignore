@@ -1,9 +1,19 @@
 node_modules/
 dist/
 .env
-data/browser_profile/
-data/cookies.json
-data/logs/
+.env.local
+
+# Runtime data: browser profiles (contain live IG session cookies), the SQLite
+# DB, stats and PID files. The old rules only covered data/browser_profile/,
+# which let data/accounts/<id>/profile and instagram.db be committed — that
+# would publish real session cookies to the repo.
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
 *.log
 .DS_Store
 Thumbs.db
