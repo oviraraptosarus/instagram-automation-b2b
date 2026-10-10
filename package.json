@@ -11,8 +11,9 @@
     "login": "ts-node src/login-helper.ts",
     "dashboard": "node dist/dashboard/standalone.js",
     "clean": "rimraf dist",
-    "test": "IG_PACING_SCALE=0 ts-node tests/dm-engine.test.ts && IG_PACING_SCALE=0 ts-node tests/dm-e2e.test.ts && IG_PACING_SCALE=0 ts-node tests/multi-account.test.ts",
-    "test:dm": "IG_PACING_SCALE=0 ts-node tests/dm-engine.test.ts && IG_PACING_SCALE=0 ts-node tests/dm-e2e.test.ts"
+    "test": "IG_PACING_SCALE=0 ts-node tests/dm-engine.test.ts && IG_PACING_SCALE=0 ts-node tests/dm-e2e.test.ts && IG_PACING_SCALE=0 ts-node tests/multi-isolation.test.ts && IG_PACING_SCALE=0 ts-node tests/multi-account.test.ts",
+    "test:dm": "IG_PACING_SCALE=0 ts-node tests/dm-engine.test.ts && IG_PACING_SCALE=0 ts-node tests/dm-e2e.test.ts",
+    "account": "ts-node src/account-cli.ts"
   },
   "keywords": [
     "instagram",

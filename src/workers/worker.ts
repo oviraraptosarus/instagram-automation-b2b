@@ -19,6 +19,8 @@ export class AccountWorker {
     private page: Page | null = null;
     private dmEngine: DMEngine;
     private safetyProfile: string;
+    /** This account's own hashtag set (falls back to global .env). */
+    private hashtags: string[];
     /** Rotates DM sweeps and engagement cycles so DMs are never starved. */
     private cycleCount: number = 0;
 
@@ -28,7 +30,8 @@ export class AccountWorker {
         storage: Storage,
         logger: Logger,
         brain: AIBrain,
-        safetyProfile: string = config.safety.profile
+        safetyProfile: string = config.safety.profile,
+        hashtags?: string[]
     ) {
         this.accountId = accountId;
         this.browserEngine = browserEngine;
@@ -36,6 +39,8 @@ export class AccountWorker {
         this.logger = logger;
         this.brain = brain;
         this.safetyProfile = safetyProfile;
+        // Per-account hashtags; fall back to the global .env list.
+        this.hashtags = hashtags?.length ? hashtags : config.targeting.hashtags;
         this.dmEngine = new DMEngine(accountId, brain, logger, safetyProfile);
     }
 
@@ -172,7 +177,7 @@ export class AccountWorker {
      * check relevance via AIBrain, then like/comment within quota.
      */
     async runCycle(page: Page): Promise<void> {
-        const hashtags = config.targeting.hashtags;
+        const hashtags = this.hashtags;
         const tag = hashtags[Math.floor(Math.random() * hashtags.length)];
         this.logger.action('Explore', `Surfing hashtag #${tag}`);
 

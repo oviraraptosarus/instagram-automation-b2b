@@ -1,6 +1,12 @@
 import { BrowserEngine } from '../engine/browser';
 import { Logger } from '../utils/logger';
-import { getDb, AccountRow } from '../storage/db';
+import { getDb, AccountRow, upsertAccountRow } from '../storage/db';
+import { AccountWorker as EngineWorker } from './worker';
+import { AccountRegistry as FileRegistry } from '../accounts/registry';
+import { AIBrain } from '../ai/brain';
+import { Storage } from '../utils/storage';
+import { config } from '../config';
+import path from 'path';
 
 // ---------------------------------------------------------------------------
 // AccountWorker – tracks the runtime state of a single account's worker
@@ -23,6 +29,11 @@ export class AccountWorker {
   startedAt: string | null = null;
   stoppedAt: string | null = null;
 
+  /** The real action-loop worker (likes/comments/DMs). */
+  private engineWorker: EngineWorker | null = null;
+  /** Background promise of the action loop; not awaited by start(). */
+  private loop: Promise<void> | null = null;
+
   constructor(accountId: string) {
     this.accountId = accountId;
   }
@@ -33,9 +44,64 @@ export class AccountWorker {
     this.startedAt = new Date().toISOString();
     this.stoppedAt = null;
     try {
+      // Load this account's OWN config from data/accounts/<id>/state.json.
+      // Previously this class only launched a browser and returned, so the
+      // account never liked, commented or answered a single DM.
+      const fileRegistry = FileRegistry.getInstance();
+      fileRegistry.discover();
+      const acc = fileRegistry.get(this.accountId);
+
+      const safetyProfile = acc?.safetyProfile || config.safety.profile;
+      const accountContext = acc?.targeting?.accountContext ?? config.targeting.accountContext;
+      const hashtags = acc?.targeting?.hashtags?.length
+        ? acc.targeting.hashtags
+        : config.targeting.hashtags;
+
+      // Per-account identity so account B's offer never leaks into account A.
+      const brain = new AIBrain({
+        accountId: this.accountId,
+        accountContext,
+      });
+
+      const logger = new Logger(this.accountId);
+
+      // Per-account stats file; a shared one made every account's counters lie.
+      const storage = new Storage(
+        path.join(config.paths.dataDir, 'accounts', this.accountId, 'stats.json')
+      );
+
       this.engine = new BrowserEngine(this.accountId);
-      await this.engine.launch(true);
-      Logger.success(`Worker for account "${this.accountId}" started`);
+
+      // Keep SQLite in step with disk so FK-bound quota writes succeed.
+      upsertAccountRow({
+        id: this.accountId,
+        username: acc?.username || this.accountId,
+        safetyProfile,
+        authenticated: true,
+        enabled: true,
+        status: 'RUNNING',
+        accountContext,
+      });
+
+      this.engineWorker = new EngineWorker(
+        this.accountId,
+        this.engine,
+        storage,
+        logger,
+        brain,
+        safetyProfile,
+        hashtags
+      );
+
+      // The action loop runs until stop(); don't await it or startAccount()
+      // would block forever and the dashboard request would never return.
+      this.loop = this.engineWorker.start().catch((err: any) => {
+        this.state = 'crashed';
+        this.error = err?.message || String(err);
+        Logger.error(`Worker for account "${this.accountId}" crashed: ${this.error}`);
+      });
+
+      Logger.success(`Worker for account "${this.accountId}" started (profile=${safetyProfile})`);
     } catch (err: any) {
       this.state = 'crashed';
       this.error = err.message;
@@ -45,6 +111,18 @@ export class AccountWorker {
   }
 
   async stop(): Promise<void> {
+    // Ask the action loop to exit before tearing the browser down, otherwise
+    // the loop keeps driving a dead page and throws.
+    if (this.engineWorker) {
+      try {
+        await this.engineWorker.stop();
+      } catch (err: any) {
+        Logger.warn(`Worker "${this.accountId}" stop() reported: ${err.message}`);
+      }
+      this.engineWorker = null;
+    }
+    this.loop = null;
+
     if (this.engine) {
       await this.engine.stop();
       this.engine = null;

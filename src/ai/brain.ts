@@ -28,19 +28,43 @@ export type DMIntent =
     | 'OTHER'
     | 'UNKNOWN';
 
+/**
+ * Per-account AI overrides. When omitted the global .env values are used, so
+ * single-account setups keep working unchanged.
+ *
+ * This exists because AIBrain previously read ONLY the global config, which
+ * meant every account in a multi-account run shared one identity, one offer
+ * and one tone — the model would pitch account B's offer in account A's DMs.
+ */
+export interface BrainContext {
+    accountId?: string;
+    tone?: string;
+    accountContext?: string;
+}
+
 export class AIBrain {
     private endpoint: string;
     private model: string;
     private apiKey: string;
     private tone: string;
+    private accountContext: string;
+    private accountId: string;
 
-    constructor() {
+    constructor(ctx: BrainContext = {}) {
         const provider = config.ai.provider.toLowerCase();
         this.endpoint = providerEndpoints[provider]
             || providerEndpoints['openclaw']; // Default to OpenClaw
         this.model = config.ai.model;
         this.apiKey = config.ai.apiKey;
-        this.tone = config.ai.tone;
+        // Per-account values win; fall back to the global .env defaults.
+        this.tone = ctx.tone || config.ai.tone;
+        this.accountContext = ctx.accountContext ?? config.targeting.accountContext;
+        this.accountId = ctx.accountId || 'global';
+    }
+
+    /** The business/offer context this brain is grounded in. */
+    public getAccountContext(): string {
+        return this.accountContext;
     }
 
     /**
@@ -71,10 +95,10 @@ Generate a single short, natural-sounding Instagram comment.`;
      */
     async isPostRelevant(postCaption: string, username: string): Promise<boolean> {
         if (!config.filtering.strictRelevance) return true;
-        if (!config.targeting.accountContext) return true;
+        if (!this.accountContext) return true;
 
         const systemPrompt = `You are a strict filtering AI for an Instagram account.
-Account Context: "${config.targeting.accountContext}"
+Account Context: "${this.accountContext}"
 
 Analyze the post. Is it relevant to this account (e.g., a potential client, a lead, a peer in the exact same niche, or relevant industry news)?
 If it is unrelated to the account's niche, personal noise, or random spam, reject it.
@@ -105,8 +129,8 @@ Respond ONLY with the word YES or NO.`;
         senderName: string,
         opts: { history?: string[]; intent?: DMIntent } = {}
     ): Promise<string | null> {
-        const businessContext = config.targeting.accountContext
-            ? `Your business context: ${config.targeting.accountContext}`
+        const businessContext = this.accountContext
+            ? `Your business context: ${this.accountContext}`
             : 'You have no specific business context — stay generic and friendly.';
 
         const systemPrompt = `${this.tone}
@@ -147,7 +171,7 @@ Write a natural DM reply.`;
         if (config.ai.provider === 'none') return 'UNKNOWN';
 
         const systemPrompt = `You are a strict intent classifier for inbound Instagram DMs.
-${config.targeting.accountContext ? `Business context: ${config.targeting.accountContext}` : ''}
+${this.accountContext ? `Business context: ${this.accountContext}` : ''}
 
 Reply with EXACTLY ONE of these labels and nothing else:
 HOT_LEAD      - explicitly wants to buy, asks price/availability, wants a call

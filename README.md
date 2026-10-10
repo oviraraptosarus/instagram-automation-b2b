@@ -68,20 +68,56 @@ npm install
 npx playwright install chromium
 ```
 
-### 2. Inject Client Accounts
-Log into your target Instagram accounts independently into isolated browser profiles:
+### 2. Provision Each Account (feed it its own data)
+
+Every account carries its **own** offer, hashtags, safety profile and modules — stored in `data/accounts/<id>/state.json` and loaded per worker. Nothing is shared between accounts.
+
+```bash
+# Create the account
+npm run account -- add --id agency_alpha --username your_handle --profile safe
+
+# Feed it its data — this is the field that matters most
+npm run account -- set --id agency_alpha \
+  --context "We run paid ads for B2B SaaS founders, \$5k-15k/mo retainers" \
+  --hashtags saas,b2b,founders \
+  --modules hashtagLike,hashtagComment,dmReply
+
+# A second account with a completely different offer
+npm run account -- add --id founder_beta --username other_handle --profile balanced
+npm run account -- set --id founder_beta \
+  --context "Online fitness coaching for busy execs, \$300/mo" \
+  --hashtags fitness,gym
+
+npm run account -- list          # audit every account's config
+npm run account -- show    --id agency_alpha
+npm run account -- disable --id founder_beta
+```
+
+**`--context` is the highest-leverage field.** It grounds every AI comment, every intent classification, and every DM reply. Leave it empty and the account falls back to the global `.env` and sends obviously-botted generic messages.
+
+| Field | Flag | Effect |
+|---|---|---|
+| Offer / business context | `--context` | Grounds all AI output. Prevents invented pricing. |
+| Hashtag targets | `--hashtags` | Which feeds this account works. |
+| Safety profile | `--profile` | `safe` (40/15) · `balanced` (70/25) · `active` (120/40) per day |
+| Enabled modules | `--modules` | `feedLike` `feedComment` `hashtagLike` `hashtagComment` `dmReply` |
+
+### 3. Log Into Each Account (one time, per account)
+
+Each login lands in a **quarantined** browser profile at `data/accounts/<id>/profile` — separate cookies, separate fingerprint.
+
 ```bash
 npm run login -- --account agency_alpha
 npm run login -- --account founder_beta
 ```
 
-### 3. Ignite The Swarm
+### 4. Ignite The Swarm
 ```bash
 npm run build
 npm start
 ```
 
-### 4. Live Command Center (Operator GUI)
+### 5. Live Command Center (Operator GUI)
 ```bash
 npm run dashboard
 # Dashboard live at http://localhost:3456
@@ -101,6 +137,46 @@ Complete programmatic control over your deployed fleet:
 | `/api/accounts/:id/stop` | `POST` | Safely sleep an account drone. |
 | `/api/accounts/:id/restart`| `POST` | Graceful worker cycle. |
 | `/api/accounts/:id/logs` | `GET` | Filtered, account-specific tail logs. |
+| `/api/dm/escalations` | `GET` | **Hot leads flagged for human follow-up.** |
+| `/api/dm/activity` | `GET` | Recent DM engine activity across the fleet. |
+
+---
+
+## 📬 The DM Engine
+
+Inbound DMs are classified **before** anything is sent:
+
+| Intent | Action |
+|---|---|
+| `HOT_LEAD` | **Escalated to a human.** The bot will not negotiate your $1k–$10k deal. Surfaces on `/api/dm/escalations`. |
+| `WARM_LEAD` / `QUESTION` | Context-grounded reply, quota-gated. |
+| `SPAM` / `ABUSE` / `SALES_PITCH` | **Silence.** Blocklisted intents are never answered. |
+
+Hard guarantees, each covered by a test:
+- **Never replies twice** to the same message (per-thread cooldown + SQLite dedupe).
+- **Never replies when it's our turn** — skips threads where we sent the last message.
+- **Stays silent on AI outage** instead of posting a canned template.
+- **Consumes zero quota** on skipped threads.
+
+Tune via `.env`: `DM_MAX_THREADS_PER_SWEEP`, `DM_REPLY_COOLDOWN_MINUTES`, `DM_HANDOFF_ON_HOT_LEAD`, `DM_NEVER_REPLY_INTENTS`.
+
+---
+
+## 🧪 Test Suite
+
+```bash
+npm test
+```
+```
+DM SUITE:                  32 PASSED, 0 FAILED
+DM E2E SUITE:              21 PASSED, 0 FAILED
+MULTI-ACCOUNT ISOLATION:   17 PASSED, 0 FAILED
+LEGACY SUITE:               4 PASSED, 0 FAILED
+```
+
+Isolation is proven on the **actual prompt text** sent to the LLM — account B's offer provably cannot appear in account A's DMs.
+
+> `IG_PACING_SCALE=0` (tests only) removes human delays. Unset in production, where pacing is the anti-ban budget: ~68s cooldowns, 40–150ms keystrokes.
 
 ---
 
